@@ -323,39 +323,35 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 }
 
 func (h *Handler) generateCommand(ctx context.Context, request *protocol.RequestHeader) protocol.ResponseCommand {
-	if h.detours != nil {
-		tag := h.detours.To
-		if h.inboundHandlerManager != nil {
-			handler, err := h.inboundHandlerManager.GetHandler(ctx, tag)
-			if err != nil {
-				newError("failed to get detour handler: ", tag).Base(err).AtWarning().WriteToLog(session.ExportIDToError(ctx))
-				return nil
-			}
-			proxyHandler, port, availableMin := handler.GetRandomInboundProxy()
-			inboundHandler, ok := proxyHandler.(*Handler)
-			if ok && inboundHandler != nil {
-				if availableMin > 255 {
-					availableMin = 255
-				}
+    if h.detours != nil {
+        tag := h.detours.To
+        if h.inboundHandlerManager != nil {
+            handler, err := h.inboundHandlerManager.GetHandler(ctx, tag)
+            if err != nil {
+                newError("failed to get detour handler: ", tag).Base(err).AtWarning().WriteToLog(session.ExportIDToError(ctx))
+                return nil
+            }
+            proxyHandler, port, _ := handler.GetRandomInboundProxy()
+            inboundHandler, ok := proxyHandler.(*Handler)
+            if ok && inboundHandler != nil {
+                newError("pick detour handler for port ", port).AtDebug().WriteToLog(session.ExportIDToError(ctx))
+                user := inboundHandler.GetUser(request.User.Email)
+                if user == nil {
+                    return nil
+                }
+                account := user.Account.(*vmess.MemoryAccount)
+                return &protocol.CommandSwitchAccount{
+                    Port:     port,
+                    ID:       account.ID.UUID(),
+                    AlterIds: uint16(len(account.AlterIDs)),
+                    Level:    user.Level,
+                    ValidMin: 0, // Set to 0 as we are dynamically allocating ports per packet
+                }
+            }
+        }
+    }
 
-				newError("pick detour handler for port ", port, " for ", availableMin, " minutes.").AtDebug().WriteToLog(session.ExportIDToError(ctx))
-				user := inboundHandler.GetUser(request.User.Email)
-				if user == nil {
-					return nil
-				}
-				account := user.Account.(*vmess.MemoryAccount)
-				return &protocol.CommandSwitchAccount{
-					Port:     port,
-					ID:       account.ID.UUID(),
-					AlterIds: uint16(len(account.AlterIDs)),
-					Level:    user.Level,
-					ValidMin: byte(availableMin),
-				}
-			}
-		}
-	}
-
-	return nil
+    return nil
 }
 
 var (
